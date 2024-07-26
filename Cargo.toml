@@ -1,0 +1,17 @@
+[package]
+name = "gt911"
+version = "0.1.0"
+edition = "2021"
+authors = ["Yomi <yomi+embedded_rust@yomitosh.com>"]
+repository = "https://github.com/abayomi185/gt911"
+license = "Apache-2.0"
+description = "Platform agnostic Rust driver for the Goodix GT911"
+readme = "README.md"
+keywords = ["goodix", "gt911", "driver", "touch", "embedded-hal-driver"]
+categories = ["embedded", "hardware-support", "no-std"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+embedded-hal = { version = "1.0.0" }
+log = { version = "0.4" }
