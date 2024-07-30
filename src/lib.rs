@@ -4,11 +4,7 @@
 
 use core::fmt;
 
-use embedded_hal::{
-    delay::DelayNs,
-    digital::{InputPin, OutputPin},
-    i2c::I2c,
-};
+use embedded_hal::{delay::DelayNs, digital::OutputPin, i2c::I2c};
 
 // I²C addresses for the GT911
 const PRIMARY_I2C_ADDR: u8 = 0x5D;
@@ -52,14 +48,35 @@ impl<E: fmt::Debug> fmt::Display for Error<E> {
     }
 }
 
+#[derive(Debug, Default)]
+pub enum GT911Rotation {
+    #[default]
+    /// No rotation.
+    Deg0 = 0,
+    /// 90° clockwise rotation.
+    Deg90 = 90,
+    /// 180° clockwise rotation.
+    Deg180 = 180,
+    /// 270° clockwise rotation.
+    Deg270 = 270,
+}
+
+impl GT911Rotation {
+    pub fn value(self) -> i32 {
+        self as i32
+    }
+}
+
 /// GT911 Options
 #[derive(Default)]
 pub struct GT911Options {
     /// Resolution (w, h) for display.
     pub resolution: (u16, u16),
+    /// Rotation of the touchscreen (0, 90, 180, 270 degrees).
+    pub rotation: GT911Rotation,
 }
 
-#[derive(Default, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct GT911Point {
     id: u8,
     x: u16,
@@ -68,7 +85,7 @@ pub struct GT911Point {
 }
 
 /// GT911 Builder
-pub struct GT911Builder<I2C, RESET, DELAY, CB> {
+pub struct GT911Builder<I2C, RESET, DELAY> {
     /// Underlying I²C peripheral
     i2c: I2C,
     /// Reset pin
@@ -77,16 +94,13 @@ pub struct GT911Builder<I2C, RESET, DELAY, CB> {
     delay: DELAY,
     /// Options
     options: GT911Options,
-    // Builder callback
-    callback: Option<CB>,
 }
 
-impl<I2C, RESET, DELAY, CB> GT911Builder<I2C, RESET, DELAY, CB>
+impl<I2C, RESET, DELAY> GT911Builder<I2C, RESET, DELAY>
 where
     I2C: I2c,
     RESET: OutputPin,
     DELAY: DelayNs,
-    CB: FnMut() -> bool,
 {
     /// Creates a new GT911Builder instance.
     pub fn new(i2c: I2C, reset: RESET, delay: DELAY) -> Self {
@@ -95,7 +109,6 @@ where
             reset,
             delay,
             options: GT911Options::default(),
-            callback: None,
         }
     }
 
@@ -107,9 +120,9 @@ where
         self
     }
 
-    /// Sets the callback function which will be called after creating [GT911] in the build method
-    pub fn callback(mut self, callback: CB) -> Self {
-        self.callback = Some(callback);
+    /// Sets the rotation for GT911 touchscreen
+    pub fn rotation(mut self, rotation: GT911Rotation) -> Self {
+        self.options.rotation = rotation;
         self
     }
 
@@ -117,14 +130,10 @@ where
     pub fn build(self) -> Result<GT911<I2C, RESET, DELAY>, Error<I2C::Error>> {
         let mut gt911 = GT911::new(self.i2c, self.reset, self.delay)?;
 
-        if let Some(mut callback) = self.callback {
-            match !callback() {
-                true => return Err(Error::Callback),
-                false => (),
-            }
-        }
-
         gt911.set_resolution(self.options.resolution.0, self.options.resolution.1)?;
+
+        // You might need to add additional operations here depending on the rotation setting
+        // For example, sending some configuration commands to the touchscreen controller
 
         Ok(gt911)
     }
@@ -140,6 +149,25 @@ pub struct GT911<I2C, RESET, DELAY> {
     delay: DELAY,
 }
 
+pub trait TouchController {
+    type Error;
+
+    fn read_points(&mut self) -> Result<[GT911Point; 5], Self::Error>;
+}
+
+impl<I2C, RESET, DELAY> TouchController for GT911<I2C, RESET, DELAY>
+where
+    I2C: I2c,
+    RESET: OutputPin,
+    DELAY: DelayNs,
+{
+    type Error = Error<I2C::Error>;
+
+    fn read_points(&mut self) -> Result<[GT911Point; 5], Self::Error> {
+        GT911::read_points(self)
+    }
+}
+
 impl<I2C, RESET, DELAY> GT911<I2C, RESET, DELAY>
 where
     I2C: I2c,
@@ -150,7 +178,8 @@ where
     fn new(i2c: I2C, reset: RESET, delay: DELAY) -> Result<Self, Error<I2C::Error>> {
         let mut gt911 = Self { i2c, reset, delay };
         gt911.reset()?;
-        // Additional initialization can be done here if needed
+        // Set mode to read coordinates
+        gt911.write_register(GT911_COMMAND, &[0]).ok();
         Ok(gt911)
     }
 
@@ -222,9 +251,9 @@ where
     fn get_point(data: &[u8]) -> GT911Point {
         GT911Point {
             id: data[0],
-            x: (data[1] as u16) << 8 | data[2] as u16,
-            y: (data[3] as u16) << 8 | data[4] as u16,
-            size: (data[5] as u16) << 8 | data[6] as u16,
+            x: data[1] as u16 | (data[2] as u16) << 8,
+            y: data[3] as u16 | (data[4] as u16) << 8,
+            size: data[5] as u16 | (data[6] as u16) << 8,
         }
     }
 
@@ -249,11 +278,14 @@ where
                         .ok();
                     touch_points[index as usize] = Self::get_point(&touch_buf);
                 }
-                // Reset the buffer for the next series of touches
-                self.write_register(GT911_POINT_STATUS, &[0]).ok();
             }
             false => (),
         }
+
+        log::debug!("{:?}", touch_points);
+
+        // Reset the buffer for the next series of touches
+        self.write_register(GT911_POINT_STATUS, &[0]).ok();
 
         Ok(touch_points)
     }
