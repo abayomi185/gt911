@@ -8,20 +8,17 @@ use embedded_hal::{delay::DelayNs, digital::OutputPin, i2c::I2c};
 
 // I²C addresses for the GT911
 const PRIMARY_I2C_ADDR: u8 = 0x5D;
-const SECONDARY_I2C_ADDR: u8 = 0x14;
 
 // Default I²C address for the GT911
 const I2C_ADDR: u8 = PRIMARY_I2C_ADDR;
 
 const GT911_COMMAND: u16 = 0x8040;
-const GT911_PRODUCT_ID: u16 = 0x8140;
 const GT911_POINT_STATUS: u16 = 0x814E;
 const GT911_POINT_START: u16 = 0x814F;
 const GT911_X_OUTPUT_MAX_LOW: u16 = 0x8048;
 const GT911_X_OUTPUT_MAX_HIGH: u16 = 0x8049;
 const GT911_Y_OUTPUT_MAX_LOW: u16 = 0x804A;
 const GT911_Y_OUTPUT_MAX_HIGH: u16 = 0x804B;
-const GT911_POINT_1: u16 = 0x814F;
 
 /// Error type for the GT911 driver
 #[derive(Debug)]
@@ -76,7 +73,8 @@ pub struct GT911Options {
     pub rotation: GT911Rotation,
 }
 
-#[derive(Default, Debug, Copy, Clone)]
+#[allow(dead_code)]
+#[derive(Default, Debug)]
 pub struct GT911Point {
     id: u8,
     x: u16,
@@ -263,7 +261,8 @@ where
         self.read_register(GT911_POINT_STATUS, &mut points_status)?;
 
         let mut touch_buf = [0u8; 7];
-        let mut touch_points = [GT911Point::default(); 5]; // Up to 5 touches
+        // Up to 5 touches
+        let mut touch_points: [GT911Point; 5] = core::array::from_fn(|_| GT911Point::default());
 
         let buffer_status = points_status[0] >> 7 & 1;
         let _proximity_valid = points_status[0] >> 5 & 1;
@@ -274,7 +273,7 @@ where
         match buffer_status == 1 && touches > 0 {
             true => {
                 for index in 0..touches {
-                    self.read_register(GT911_POINT_1 + (index as u16 * 8), &mut touch_buf)
+                    self.read_register(GT911_POINT_START + (index as u16 * 8), &mut touch_buf)
                         .ok();
                     touch_points[index as usize] = Self::get_point(&touch_buf);
                 }
