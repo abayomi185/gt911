@@ -150,7 +150,7 @@ pub struct GT911<I2C, RESET, DELAY> {
 pub trait TouchController {
     type Error;
 
-    fn read_points(&mut self) -> Result<[GT911Point; 5], Self::Error>;
+    fn read_points(&mut self) -> Result<(bool, [GT911Point; 5]), Self::Error>;
 }
 
 impl<I2C, RESET, DELAY> TouchController for GT911<I2C, RESET, DELAY>
@@ -161,7 +161,7 @@ where
 {
     type Error = Error<I2C::Error>;
 
-    fn read_points(&mut self) -> Result<[GT911Point; 5], Self::Error> {
+    fn read_points(&mut self) -> Result<(bool, [GT911Point; 5]), Self::Error> {
         GT911::read_points(self)
     }
 }
@@ -256,7 +256,7 @@ where
     }
 
     /// Read points from controller
-    pub fn read_points(&mut self) -> Result<[GT911Point; 5], Error<I2C::Error>> {
+    pub fn read_points(&mut self) -> Result<(bool, [GT911Point; 5]), Error<I2C::Error>> {
         let mut points_status = [0u8; 1];
         self.read_register(GT911_POINT_STATUS, &mut points_status)?;
 
@@ -270,7 +270,9 @@ where
         let _is_large_detect = points_status[0] >> 6 & 1;
         let touches = points_status[0] & 0xF;
 
-        match buffer_status == 1 && touches > 0 {
+        let read_condition = buffer_status == 1 && touches > 0;
+
+        match read_condition {
             true => {
                 for index in 0..touches {
                     self.read_register(GT911_POINT_START + (index as u16 * 8), &mut touch_buf)
@@ -286,7 +288,7 @@ where
         // Reset the buffer for the next series of touches
         self.write_register(GT911_POINT_STATUS, &[0]).ok();
 
-        Ok(touch_points)
+        Ok((read_condition, touch_points))
     }
 }
 
